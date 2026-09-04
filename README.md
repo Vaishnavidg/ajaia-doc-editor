@@ -1,5 +1,7 @@
 # Ajaia Docs
 
+Hosted link: https://ajaia-doc-editor-hoe3okl7o-vaishnavidgs-projects.vercel.app/documents
+
 A lightweight collaborative document editor inspired by Google Docs. Create,
 format, import, and share rich-text documents with backend-enforced
 authorization.
