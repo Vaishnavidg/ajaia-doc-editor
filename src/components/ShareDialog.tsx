@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiSend } from "@/lib/api-client";
 import type {
@@ -23,6 +24,7 @@ export function ShareDialog({
   onChange: (shares: DocumentShareSummary[]) => void;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,6 +59,7 @@ export function ShareDialog({
       );
       onChange(res.document.shares);
       setSelected("");
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to share");
     } finally {
@@ -73,6 +76,7 @@ export function ShareDialog({
         "DELETE",
       );
       onChange(res.document.shares);
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to remove");
     } finally {

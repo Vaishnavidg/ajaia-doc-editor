@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { apiSend } from "@/lib/api-client";
 import type { UserSummary } from "@/lib/types";
 
@@ -12,20 +11,34 @@ export function UserSwitcher({
   users: UserSummary[];
   currentUserId: string;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  // Local state so the <select> reflects the choice immediately, before the
+  // full page reload lands.
+  const [value, setValue] = useState(currentUserId);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleChange(userId: string) {
+    setValue(userId);
     setError(null);
+    setBusy(true);
     try {
       await apiSend("/api/session", "POST", { userId });
-      startTransition(() => {
-        router.refresh();
-        router.push("/documents");
-      });
+      // The mock user lives in a cookie read by server components (TopBar,
+      // dashboard, editor), so force a real navigation to re-render everything.
+      // The cache-busting query param defeats any stale HTTP / service-worker
+      // cache that would otherwise serve the previous user's page.
+      window.location.replace(`/documents?_=${Date.now()}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to switch user");
+      const message = e instanceof Error ? e.message : "Failed to switch user";
+      // A stale page (e.g. after a DB re-seed) can hold user IDs that no longer
+      // exist. Reload to pull a fresh user list instead of dead-ending.
+      if (message === "Unknown user") {
+        window.location.reload();
+        return;
+      }
+      setValue(currentUserId);
+      setBusy(false);
+      setError(message);
     }
   }
 
@@ -33,9 +46,9 @@ export function UserSwitcher({
     <div className="flex flex-col items-end">
       <select
         aria-label="Switch user"
-        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm"
-        value={currentUserId}
-        disabled={pending}
+        className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm disabled:opacity-60"
+        value={value}
+        disabled={busy}
         onChange={(e) => handleChange(e.target.value)}
       >
         {users.map((user) => (

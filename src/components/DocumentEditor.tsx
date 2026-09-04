@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallbackRef } from "@/lib/use-callback-ref";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallbackRef } from "@/lib/use-callback-ref";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -83,12 +82,25 @@ export function DocumentEditor({
     };
   }, [save]);
 
+  async function goToDashboard() {
+    // Flush any pending autosave so the dashboard shows the latest title, then
+    // refresh so the (cached) list re-fetches and includes this document.
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      await save();
+    }
+    router.push("/documents");
+    router.refresh();
+  }
+
   async function handleDelete() {
     if (!confirm("Delete this document? This cannot be undone.")) return;
     setDeleting(true);
     try {
       await apiSend(`/api/documents/${initialDocument.id}`, "DELETE");
       router.push("/documents");
+      router.refresh();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to delete");
       setDeleting(false);
@@ -98,12 +110,13 @@ export function DocumentEditor({
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <Link
-          href="/documents"
+        <button
+          type="button"
+          onClick={goToDashboard}
           className="text-sm font-medium text-blue-600 hover:underline"
         >
           ← Documents
-        </Link>
+        </button>
         <div className="flex items-center gap-3">
           <SaveStatus state={saveState} />
           {isOwner ? (
