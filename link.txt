@@ -1,0 +1,3 @@
+Live app:          https://ajaia-doc-editor-smoky.vercel.app
+GitHub repo:        https://github.com/Vaishnavidg/ajaia-doc-editor
+Vercel project:     https://vercel.com/vaishnavidgs-projects/ajaia-doc-editor

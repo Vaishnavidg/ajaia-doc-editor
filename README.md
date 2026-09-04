@@ -9,6 +9,11 @@ authorization.
 Built for the Ajaia Full Stack Product Engineer take-home (timeboxed to 4–6
 hours — the goal is a reliable MVP, not feature completeness).
 
+**Live:** https://ajaia-doc-editor-smoky.vercel.app
+
+See also: [ARCHITECTURE.md](ARCHITECTURE.md) (design, schema, API, tradeoffs)
+and [AI_WORKFLOW.md](AI_WORKFLOW.md) (how AI was used and verified).
+
 ---
 
 ## Features
@@ -90,116 +95,6 @@ npm run db:reset   # drop + re-migrate + re-seed the dev database
 
 ---
 
-## Architecture
-
-```
-src/
-├─ app/
-│  ├─ layout.tsx                 # shell + <TopBar/> (user switcher)
-│  ├─ page.tsx                   # redirect -> /documents
-│  ├─ documents/page.tsx         # dashboard: Owned / Shared with me (Server Component)
-│  ├─ documents/[id]/page.tsx    # loads a doc with auth check, renders the editor
-│  └─ api/                       # route handlers = the backend
-│     ├─ users/                  # GET seeded users
-│     ├─ session/                # GET current mock user, POST to switch
-│     └─ documents/
-│        ├─ route.ts             # GET list, POST create
-│        ├─ import/route.ts      # POST multipart upload
-│        └─ [id]/
-│           ├─ route.ts          # GET / PATCH / DELETE one document
-│           └─ shares/…          # POST share, DELETE unshare
-├─ components/                   # client components (editor, toolbar, dialogs)
-└─ lib/
-   ├─ prisma.ts                  # PrismaClient singleton
-   ├─ auth.ts                    # getCurrentUser() from the session cookie
-   ├─ documents.ts               # service layer — ALL authorization lives here
-   ├─ content.ts                 # HTML sanitization, txt/md -> HTML
-   ├─ validation.ts              # Zod schemas + limits
-   └─ errors.ts                  # typed errors -> HTTP responses
-```
-
-**Key decisions**
-
-- **Authorization is centralized in `src/lib/documents.ts`.** Route handlers do
-  auth (`getCurrentUser`) + validation (Zod) and then delegate. Every read/write
-  path calls `getDocumentForUser()` (owner-or-shared) or `assertOwner()`
-  (owner-only) before touching data, so the frontend cannot bypass it. This is
-  also exactly what the test suite exercises.
-- **Content is stored as sanitized HTML.** TipTap reads and writes HTML
-  natively, and Markdown import is a one-step `marked` → sanitize. Stored HTML is
-  restricted (via `sanitize-html`) to the tag set the editor can produce, so a
-  `<script>` in an imported file or a crafted `PATCH` is stripped before it is
-  saved.
-- **Autosave** is a debounced `PATCH` (800 ms) with a "Saving… / All changes
-  saved" indicator; a pending save is flushed on navigation away. Conflict
-  resolution is last-write-wins (see tradeoffs).
-- **Mock auth**: the "logged-in" user is an httpOnly `userId` cookie set by
-  `POST /api/session`. With no cookie the app falls back to the first seeded user
-  so it is usable on first load. There are no anonymous requests — every API
-  call resolves to some user.
-
-### Database schema (`prisma/schema.prisma`)
-
-```
-User            id, name, email (unique), createdAt
-Document        id, title, content (HTML text), ownerId -> User, createdAt, updatedAt
-DocumentShare   id, documentId -> Document, userId -> User, createdAt
-                @@unique([documentId, userId])   // one share row per (doc, user)
-```
-
-The datasource uses `url` (pooled) + `directUrl` (unpooled, for migrations) so it
-works behind a serverless connection pooler like Neon's.
-
-`onDelete: Cascade` on both `DocumentShare` relations; deleting a document
-removes its shares.
-
-### API
-
-| Method | Route | Auth | Notes |
-|---|---|---|---|
-| GET | `/api/users` | any | seeded users |
-| GET / POST | `/api/session` | any | read / switch the active mock user |
-| GET | `/api/documents` | user | `{ owned: [], shared: [] }` |
-| POST | `/api/documents` | user | create empty document |
-| GET | `/api/documents/:id` | owner or shared | returns `role: "owner" \| "editor"` |
-| PATCH | `/api/documents/:id` | owner or shared | update `title` and/or `content` |
-| DELETE | `/api/documents/:id` | owner only | |
-| POST | `/api/documents/:id/shares` | owner only | body `{ userId }` |
-| DELETE | `/api/documents/:id/shares/:userId` | owner only | |
-| POST | `/api/documents/import` | user | multipart `file`; `.txt`/`.md`, ≤ 1 MB |
-
-Errors return `{ "error": "message" }` with `400` (validation), `401` (no user),
-`403` (not authorized), `404` (missing), or `500`.
-
----
-
-## Testing
-
-```bash
-TEST_DATABASE_URL="postgresql://…/ajaia_test" npm test
-```
-
-`tests/authorization.test.ts` runs against the Postgres database in
-`TEST_DATABASE_URL` (a Neon branch or a second database works well).
-`tests/global-setup.ts` rebuilds the schema from the migrations before the run,
-and every row is deleted between tests. If `TEST_DATABASE_URL` is unset the
-suite falls back to `DATABASE_URL` with a warning. It covers the core
-requirement:
-
-1. **Owner + shared users in, everyone else out** — Alice creates a document;
-   Carol is denied (`ForbiddenError`); Alice shares with Bob; Bob is now allowed
-   (as `editor`); Carol is still denied.
-2. **Edit vs. manage permissions** — a shared editor can edit content; a
-   non-collaborator cannot; a shared editor cannot share or delete; the owner
-   can delete.
-3. **Owned vs. shared listing** — `listDocumentsForUser` puts each document in
-   the correct bucket.
-
-The tests call the same `src/lib/documents.ts` functions the API routes use, so
-they verify the real authorization logic and real Prisma queries.
-
----
-
 ## Deployment (Vercel)
 
 This is a single Next.js app — the API route handlers are the backend, served
@@ -250,82 +145,6 @@ Vercel Postgres).
   it (or set the Node version in Project Settings).
 - **Rollback**: redeploying an older commit re-runs `migrate deploy`, which only
   applies *forward* migrations. Down-migrations are not automated (out of scope).
-
----
-
-## Tradeoffs & things left out (by the timebox)
-
-**Deliberately not built** (per the assignment's scope-control list): real-time
-collaboration / WebSockets / CRDT, comments, version history, real auth
-(passwords/OAuth/sessions), permission tiers (all shares grant edit), `.docx`
-import, export, folders/search/trash, pagination, and E2E/browser tests.
-
-**Conscious shortcuts**
-
-- **Content as HTML, not ProseMirror JSON.** Faster import and simpler
-  round-tripping; slightly less structured than JSON. Mitigated by strict
-  server-side sanitization.
-- **Last-write-wins autosave.** Two people editing the same document
-  simultaneously can overwrite each other. Acceptable without real-time infra;
-  a real fix needs OT/CRDT, which is explicitly out of scope.
-- **Mock auth via a cookie with a first-user fallback.** No login screen. Fine
-  for the assignment; not a real identity system.
-- **All collaborators are editors.** No read-only sharing.
-- **Postgres, seeded on every deploy.** `vercel-build` runs `prisma migrate
-  deploy` + the (idempotent) seed so a fresh deployment is immediately usable.
-  For a real app the seed would be a one-time job, not part of the build.
-- **Local dev needs a Postgres URL** (Neon's free tier, or local Postgres).
-  Earlier the project used SQLite for zero-setup local dev, but SQLite cannot
-  persist on Vercel's serverless filesystem, so Postgres is now used everywhere
-  for parity.
-- **`getCurrentUser` fallback** means an unauthenticated API call is treated as
-  the first seeded user rather than rejected. The authorization *rules* (which
-  document a given user may touch) are still fully enforced and tested.
-- Editor autosave verified via API round-trips and a headless render of the
-  editor; not wired to a full browser E2E test.
-
----
-
-## AI-native workflow
-
-**Tool used:** Claude Code (Claude Sonnet) — as an implementation assistant, not
-the decision-maker.
-
-**Where AI helped**
-
-- Scaffolding and boilerplate: Next.js setup, Prisma schema, route-handler
-  skeletons, Tailwind markup for the dialogs and dashboard, the Vercel/Postgres
-  deployment wiring.
-- The service/validation/error-handling layer and the Vitest authorization
-  suite were drafted with AI and then reviewed line by line.
-- Debugging environment friction (Node version vs. Prisma 7, npm peer-dependency
-  conflicts) and dependency selection.
-
-**What was changed or rejected**
-
-- **Prisma 7 → Prisma 6.** `prisma init` for v7 generated a `prisma.config.ts`,
-  a custom client output path, non-auto env loading, and unrelated "skills"
-  files. Downgraded to the stable Prisma 6 for less moving-parts risk within the
-  timebox.
-- **SQLite → Postgres.** The project first used SQLite (per an explicit request)
-  with a Fly.io + Docker deployment. When the target became Vercel, SQLite was
-  dropped — it can't persist on serverless — in favour of Postgres everywhere,
-  and the Docker/Fly files were removed rather than left as dead weight.
-- The test DB setup went through `db push --force-reset` (destructive flag
-  removed) → SQLite file reset → finally `prisma db execute --url` against a
-  throwaway Postgres, which sidesteps `.env` precedence issues in the runner.
-- Tightened a few AI-generated validation messages that leaked internals
-  ("Max 976.5625 KB" → "Maximum is 1 MB").
-
-**How correctness and UX were verified**
-
-- `npm test` — authorization rules (green).
-- `npm run build` + `npm run lint` — clean.
-- Manual API smoke tests with `curl` against both the dev server and the
-  production build: create → edit → reopen (persistence), Carol `403`, Bob `403`
-  before share → `200` after, Bob cannot share/delete, `<script>` stripped on
-  save, `.md`/`.txt` import, oversize and wrong-type import rejected, Owned vs
-  Shared listing.
-- Headless-Chromium screenshots of the dashboard and the editor to confirm
-  TipTap hydrates and renders imported Markdown (heading, bold, italic, bullet
-  and numbered lists).
+- **One Vercel project per GitHub repo.** If you import the repo twice you get
+  two projects both building on every push, each with its own env vars — pick
+  one and delete the other, or you'll edit variables on the wrong project.
