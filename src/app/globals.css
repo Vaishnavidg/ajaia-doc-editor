@@ -1,26 +1,71 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #f7f7f8;
+  --foreground: #1a1a1a;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+/* TipTap / ProseMirror editor content */
+.doc-content {
+  outline: none;
+}
+.doc-content:focus {
+  outline: none;
+}
+.doc-content p {
+  margin: 0 0 0.75rem;
+  line-height: 1.6;
+}
+.doc-content h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin: 1.25rem 0 0.75rem;
+}
+.doc-content h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 1rem 0 0.5rem;
+}
+.doc-content h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0.875rem 0 0.5rem;
+}
+.doc-content ul,
+.doc-content ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
+}
+.doc-content ul {
+  list-style: disc;
+}
+.doc-content ol {
+  list-style: decimal;
+}
+.doc-content li {
+  margin: 0.15rem 0;
+}
+.doc-content u {
+  text-decoration: underline;
+}
+.doc-content blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 1rem;
+  color: #4b5563;
+  margin: 0 0 0.75rem;
+}
+.doc-content:empty::before,
+.doc-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+  float: left;
+  height: 0;
 }
