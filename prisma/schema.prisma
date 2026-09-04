@@ -8,9 +8,10 @@ datasource db {
   provider  = "postgresql"
   // Pooled connection (PgBouncer) used by the app at runtime.
   url       = env("DATABASE_URL")
-  // Direct connection used by `prisma migrate` / `db push`.
-  // If your provider has no separate direct URL, set it to the same value.
-  directUrl = env("DIRECT_URL")
+  // Direct connection used by `prisma migrate` / `db push`. Named to match
+  // what Vercel's Neon integration provisions automatically; if your provider
+  // has no separate direct URL, set this to the same value as DATABASE_URL.
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model User {

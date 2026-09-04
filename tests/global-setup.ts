@@ -8,8 +8,8 @@ import { join } from "node:path";
 // deleted between tests. Point this at a throwaway database, never production.
 //
 // This runs once, in the main process, before the test workers spawn, so
-// setting DATABASE_URL / DIRECT_URL here makes the workers' Prisma client
-// connect to the right database.
+// setting DATABASE_URL / DATABASE_URL_UNPOOLED here makes the workers' Prisma
+// client connect to the right database.
 const PRISMA_BIN = join(
   process.cwd(),
   "node_modules",
@@ -36,8 +36,8 @@ export default function setup() {
   const testUrl = process.env.TEST_DATABASE_URL;
   const url = testUrl || process.env.DATABASE_URL;
   const directUrl = testUrl
-    ? process.env.TEST_DIRECT_URL || testUrl
-    : process.env.DIRECT_URL || process.env.DATABASE_URL;
+    ? process.env.TEST_DATABASE_URL_UNPOOLED || testUrl
+    : process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
 
   if (!url || !directUrl) {
     throw new Error(
@@ -72,5 +72,5 @@ export default function setup() {
   }
 
   process.env.DATABASE_URL = url;
-  process.env.DIRECT_URL = directUrl;
+  process.env.DATABASE_URL_UNPOOLED = directUrl;
 }

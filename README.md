@@ -50,9 +50,10 @@ npm install        # also runs `prisma generate`
 
 # 3. Point at a Postgres database
 cp .env.example .env
-#   Edit .env: set DATABASE_URL and DIRECT_URL to your Postgres connection
-#   strings. Fastest path: create a free project at neon.tech and paste its
-#   pooled URL into DATABASE_URL and its direct URL into DIRECT_URL.
+#   Edit .env: set DATABASE_URL and DATABASE_URL_UNPOOLED to your Postgres
+#   connection strings. Fastest path: create a free project at neon.tech and
+#   paste its pooled URL into DATABASE_URL and its direct URL into
+#   DATABASE_URL_UNPOOLED.
 
 # 4. Create the schema + seed the mock users
 npm run db:migrate            # prisma migrate dev
@@ -211,37 +212,33 @@ Vercel Postgres).
 
 1. **Push this repo to GitHub** (or GitLab/Bitbucket).
 
-2. **Create the Postgres database.** In the Vercel dashboard → **Storage** →
-   **Create Database** → **Postgres (Neon)**. Attaching it to the project sets
-   `DATABASE_URL` and a non-pooled URL automatically. (Or create a project at
-   [neon.tech](https://neon.tech) and copy the two connection strings yourself.)
+2. **Import the project** in Vercel → **Add New… → Project** → pick the repo.
+   Root directory is `./` (this is not a monorepo). Framework preset **Next.js**
+   is detected; leave the build settings default (the repo's `vercel-build`
+   script is used automatically). Deploy once — it will fail at the database
+   step, that's expected before step 3.
 
-3. **Import the project** in Vercel → **Add New… → Project** → pick the repo.
-   Framework preset **Next.js** is detected; leave the build settings default
-   (the repo's `vercel-build` script is used automatically).
+3. **Create and connect Postgres.** Vercel dashboard → **Storage** tab →
+   **Create Database → Postgres (Neon)** (or connect an existing Neon project)
+   → **Connect to Project** → select this project → leave **Custom
+   Environment Variable Prefix empty** (that's what makes it create plain
+   `DATABASE_URL` / `DATABASE_URL_UNPOOLED` — the names
+   `prisma/schema.prisma` expects) → **Connect Project**. This creates ~18
+   environment variables automatically; no manual copy-pasting of connection
+   strings needed, which avoids the usual sources of a broken connection
+   string (stray quotes, wrong field, truncated paste).
 
-4. **Set environment variables** (Project → Settings → Environment Variables),
-   for **Production** and **Preview**:
-
-   | Variable | Value |
-   |---|---|
-   | `DATABASE_URL` | pooled connection string (Neon: the `-pooler` host) |
-   | `DIRECT_URL` | direct/unpooled connection string |
-
-   With the Neon integration, `DATABASE_URL` is already set — add `DIRECT_URL`
-   and set it to the value of the `DATABASE_URL_UNPOOLED` (or
-   `POSTGRES_URL_NON_POOLING`) variable the integration created.
-
-5. **Deploy.** On every deploy, `vercel-build` runs:
+4. **Redeploy** (Deployments tab → latest → ⋯ → Redeploy, or push a new
+   commit). `vercel-build` now runs:
 
    ```
    prisma generate && prisma migrate deploy && node prisma/seed.mjs && next build
    ```
 
-   so the schema is migrated and the four mock users are (idempotently) seeded
-   before the app is built. No manual database step is needed.
+   migrating the schema and (idempotently) seeding the four mock users before
+   the app is built. No manual database step is needed after this.
 
-6. Open the deployment URL, pick a user from **Viewing as**, and use the app.
+5. Open the deployment URL, pick a user from **Viewing as**, and use the app.
 
 ### Notes
 
