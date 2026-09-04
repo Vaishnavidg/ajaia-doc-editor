@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   description: "A lightweight collaborative document editor",
 };
 
+// Every page is user-specific (mock user in a cookie) and the shell reads the
+// database, so there is nothing to statically prerender. This also keeps the
+// build from needing a reachable database.
+export const dynamic = "force-dynamic";
+
 // This app ships no service worker. If another project previously registered
 // one on the same origin (common on localhost:3000), it can serve stale pages
 // and force manual hard-refreshes. Tear any such worker (and its caches) down,

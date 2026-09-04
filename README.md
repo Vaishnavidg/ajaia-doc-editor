@@ -13,13 +13,13 @@ hours — the goal is a reliable MVP, not feature completeness).
 
 | Area | What works |
 |---|---|
-| Documents | Create, rename, edit, autosave, reopen; persisted in SQLite |
+| Documents | Create, rename, edit, autosave, reopen; persisted in Postgres |
 | Rich text | Bold, italic, underline, H1–H3, bullet & numbered lists (TipTap) |
 | File import | `.txt` and `.md`, converted to an editable document; type + size validated on the client **and** the server; supported types shown in the dialog |
 | Sharing | Seeded/mock users, an owner per document, share/unshare with another user, separate **Owned** and **Shared with me** lists |
 | Authorization | Every document API call is checked on the backend: access requires `user == owner` **or** a `DocumentShare` row. Only the owner can share, unshare, or delete. |
 | Errors | Zod validation on every request body; consistent JSON error shape; friendly messages surfaced in the UI |
-| Tests | Vitest suite covering the sharing/authorization rules against a real SQLite database |
+| Tests | Vitest suite covering the sharing/authorization rules against a real Postgres database |
 
 ---
 
@@ -28,7 +28,8 @@ hours — the goal is a reliable MVP, not feature completeness).
 - **Next.js 15** (App Router) + **React 19** + **TypeScript** — one app, one
   deploy; API route handlers are the backend.
 - **TipTap 2** (`StarterKit` + `Underline`) — rich-text editing.
-- **Prisma 6** + **SQLite** — schema, migrations, and a single-file database.
+- **Prisma 6** + **PostgreSQL** — schema, migrations, typed queries. Any Postgres
+  works; [Neon](https://neon.tech) / Vercel Postgres are the zero-setup options.
 - **Tailwind CSS 4** — styling.
 - **Zod** — request validation.
 - **sanitize-html** + **marked** — safe HTML storage and Markdown import.
@@ -45,14 +46,19 @@ Node **>= 22.12** (or >= 20.19) is required by Prisma 6. See `.nvmrc`.
 nvm use            # reads .nvmrc (22.13.1); or install Node >= 22.12
 
 # 2. Install
-npm install
+npm install        # also runs `prisma generate`
 
-# 3. Set up the database
-cp .env.example .env          # DATABASE_URL="file:./dev.db"
-npm run db:migrate            # apply migrations
-npm run db:seed               # seed 4 mock users + a sample shared document
+# 3. Point at a Postgres database
+cp .env.example .env
+#   Edit .env: set DATABASE_URL and DIRECT_URL to your Postgres connection
+#   strings. Fastest path: create a free project at neon.tech and paste its
+#   pooled URL into DATABASE_URL and its direct URL into DIRECT_URL.
 
-# 4. Run
+# 4. Create the schema + seed the mock users
+npm run db:migrate            # prisma migrate dev
+npm run db:seed               # 4 mock users + a sample shared document
+
+# 5. Run
 npm run dev                   # http://localhost:3000
 ```
 
@@ -69,7 +75,10 @@ bar):
 ### Other scripts
 
 ```bash
-npm test           # run the Vitest suite (uses an isolated prisma/test.db)
+npm test           # Vitest suite. Needs a throwaway Postgres:
+                   #   TEST_DATABASE_URL=postgres://... npm test
+                   #   (falls back to DATABASE_URL with a warning — every row
+                   #    in that DB is deleted between tests)
 npm run build      # production build (runs `prisma generate` first)
 npm run start      # serve the production build
 npm run lint       # eslint
@@ -130,10 +139,13 @@ src/
 
 ```
 User            id, name, email (unique), createdAt
-Document        id, title, content (HTML), ownerId -> User, createdAt, updatedAt
+Document        id, title, content (HTML text), ownerId -> User, createdAt, updatedAt
 DocumentShare   id, documentId -> Document, userId -> User, createdAt
                 @@unique([documentId, userId])   // one share row per (doc, user)
 ```
+
+The datasource uses `url` (pooled) + `directUrl` (unpooled, for migrations) so it
+works behind a serverless connection pooler like Neon's.
 
 `onDelete: Cascade` on both `DocumentShare` relations; deleting a document
 removes its shares.
@@ -161,11 +173,15 @@ Errors return `{ "error": "message" }` with `400` (validation), `401` (no user),
 ## Testing
 
 ```bash
-npm test
+TEST_DATABASE_URL="postgresql://…/ajaia_test" npm test
 ```
 
-`tests/authorization.test.ts` runs against an isolated `prisma/test.db`
-(created by `tests/global-setup.ts`) and covers the core requirement:
+`tests/authorization.test.ts` runs against the Postgres database in
+`TEST_DATABASE_URL` (a Neon branch or a second database works well).
+`tests/global-setup.ts` rebuilds the schema from the migrations before the run,
+and every row is deleted between tests. If `TEST_DATABASE_URL` is unset the
+suite falls back to `DATABASE_URL` with a warning. It covers the core
+requirement:
 
 1. **Owner + shared users in, everyone else out** — Alice creates a document;
    Carol is denied (`ForbiddenError`); Alice shares with Bob; Bob is now allowed
@@ -181,33 +197,60 @@ they verify the real authorization logic and real Prisma queries.
 
 ---
 
-## Deployment
+## Deployment (Vercel)
 
-The app is packaged as a Docker image (`Dockerfile`) that runs `prisma migrate
-deploy` and seeds mock users on boot, then serves the Next.js production build.
-SQLite lives on a mounted volume at `/data/prod.db`.
+This is a single Next.js app — the API route handlers are the backend, served
+from the same origin as the pages. There is no separate service, so no CORS
+config, no API-base-URL variable, and no cross-service networking. The only
+external dependency is a Postgres database.
 
-### Fly.io (config included)
+**Architecture:** Vercel (Next.js app + serverless API routes) → Postgres (Neon /
+Vercel Postgres).
 
-```bash
-fly launch --no-deploy                              # accept the bundled fly.toml
-fly volumes create data --size 1 --region iad       # persistent disk for SQLite
-fly deploy
-```
+### Steps
 
-`fly.toml` sets `DATABASE_URL=file:/data/prod.db` and keeps a single machine
-(SQLite + one volume = one writer).
+1. **Push this repo to GitHub** (or GitLab/Bitbucket).
 
-### Any Docker host
+2. **Create the Postgres database.** In the Vercel dashboard → **Storage** →
+   **Create Database** → **Postgres (Neon)**. Attaching it to the project sets
+   `DATABASE_URL` and a non-pooled URL automatically. (Or create a project at
+   [neon.tech](https://neon.tech) and copy the two connection strings yourself.)
 
-```bash
-docker build -t ajaia-docs .
-docker run -p 3000:3000 -v ajaia_data:/data ajaia-docs
-```
+3. **Import the project** in Vercel → **Add New… → Project** → pick the repo.
+   Framework preset **Next.js** is detected; leave the build settings default
+   (the repo's `vercel-build` script is used automatically).
 
-> Note: the Docker image was authored but not built in the development
-> environment (no Docker daemon access there). The local `npm` flow above is
-> fully verified.
+4. **Set environment variables** (Project → Settings → Environment Variables),
+   for **Production** and **Preview**:
+
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | pooled connection string (Neon: the `-pooler` host) |
+   | `DIRECT_URL` | direct/unpooled connection string |
+
+   With the Neon integration, `DATABASE_URL` is already set — add `DIRECT_URL`
+   and set it to the value of the `DATABASE_URL_UNPOOLED` (or
+   `POSTGRES_URL_NON_POOLING`) variable the integration created.
+
+5. **Deploy.** On every deploy, `vercel-build` runs:
+
+   ```
+   prisma generate && prisma migrate deploy && node prisma/seed.mjs && next build
+   ```
+
+   so the schema is migrated and the four mock users are (idempotently) seeded
+   before the app is built. No manual database step is needed.
+
+6. Open the deployment URL, pick a user from **Viewing as**, and use the app.
+
+### Notes
+
+- **Migrations** live in `prisma/migrations/` and are applied by
+  `prisma migrate deploy` during the build — never `db push` in production.
+- **Node**: `package.json` `engines` pins Node ≥ 20.19 / ≥ 22.12; Vercel honors
+  it (or set the Node version in Project Settings).
+- **Rollback**: redeploying an older commit re-runs `migrate deploy`, which only
+  applies *forward* migrations. Down-migrations are not automated (out of scope).
 
 ---
 
@@ -229,9 +272,13 @@ import, export, folders/search/trash, pagination, and E2E/browser tests.
 - **Mock auth via a cookie with a first-user fallback.** No login screen. Fine
   for the assignment; not a real identity system.
 - **All collaborators are editors.** No read-only sharing.
-- **SQLite.** Zero-config and perfect for this scope; single-writer, so it does
-  not scale horizontally. The Prisma schema would move to Postgres with a
-  provider change and a re-migrate.
+- **Postgres, seeded on every deploy.** `vercel-build` runs `prisma migrate
+  deploy` + the (idempotent) seed so a fresh deployment is immediately usable.
+  For a real app the seed would be a one-time job, not part of the build.
+- **Local dev needs a Postgres URL** (Neon's free tier, or local Postgres).
+  Earlier the project used SQLite for zero-setup local dev, but SQLite cannot
+  persist on Vercel's serverless filesystem, so Postgres is now used everywhere
+  for parity.
 - **`getCurrentUser` fallback** means an unauthenticated API call is treated as
   the first seeded user rather than rejected. The authorization *rules* (which
   document a given user may touch) are still fully enforced and tested.
@@ -248,8 +295,8 @@ the decision-maker.
 **Where AI helped**
 
 - Scaffolding and boilerplate: Next.js setup, Prisma schema, route-handler
-  skeletons, Tailwind markup for the dialogs and dashboard, the Dockerfile and
-  `fly.toml`.
+  skeletons, Tailwind markup for the dialogs and dashboard, the Vercel/Postgres
+  deployment wiring.
 - The service/validation/error-handling layer and the Vitest authorization
   suite were drafted with AI and then reviewed line by line.
 - Debugging environment friction (Node version vs. Prisma 7, npm peer-dependency
@@ -261,11 +308,13 @@ the decision-maker.
   a custom client output path, non-auto env loading, and unrelated "skills"
   files. Downgraded to the stable Prisma 6 for less moving-parts risk within the
   timebox.
-- **Postgres/Vercel → SQLite/Fly.io** per the requested stack; the Docker image
-  was simplified from a minimal `standalone` copy (which broke Prisma client
-  resolution) to copying `node_modules` wholesale — less clever, actually works.
-- The test DB setup initially used `prisma db push --force-reset`; removed the
-  destructive flag (delete-file-then-push is enough and safer).
+- **SQLite → Postgres.** The project first used SQLite (per an explicit request)
+  with a Fly.io + Docker deployment. When the target became Vercel, SQLite was
+  dropped — it can't persist on serverless — in favour of Postgres everywhere,
+  and the Docker/Fly files were removed rather than left as dead weight.
+- The test DB setup went through `db push --force-reset` (destructive flag
+  removed) → SQLite file reset → finally `prisma db execute --url` against a
+  throwaway Postgres, which sidesteps `.env` precedence issues in the runner.
 - Tightened a few AI-generated validation messages that leaked internals
   ("Max 976.5625 KB" → "Maximum is 1 MB").
 

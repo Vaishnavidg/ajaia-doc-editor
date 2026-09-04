@@ -1,10 +1,16 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" for local dev; the rhel target is what Vercel's Lambda runtime uses.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Pooled connection (PgBouncer) used by the app at runtime.
+  url       = env("DATABASE_URL")
+  // Direct connection used by `prisma migrate` / `db push`.
+  // If your provider has no separate direct URL, set it to the same value.
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -19,7 +25,7 @@ model User {
 model Document {
   id        String          @id @default(cuid())
   title     String          @default("Untitled document")
-  content   String          @default("")
+  content   String          @default("") @db.Text
   owner     User            @relation("OwnedDocuments", fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId   String
   shares    DocumentShare[]
